@@ -1,0 +1,9 @@
+# Secrets and runtime state — never commit
+blanc.json
+blanc.sub
+blanc.pid
+blanc.current
+custom.txt
+*.log
+.DS_Store
+__pycache__/
