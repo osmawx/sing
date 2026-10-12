@@ -10,7 +10,8 @@
 #   blanc status                  — показать состояние
 #   blanc select                  — список серверов (подписка Blanc + свои), * — текущий
 #   blanc select <имя>            — переключиться на сервер (sing-box перезапустится)
-#   blanc select add <ссылка> [имя] — добавить свой прокси (vless/vmess/trojan/ss/hy2/socks5/http)
+#   blanc select add <ссылка> [имя] — добавить свой прокси (vless/vmess/trojan/ss/hy2/wg/socks5/http)
+#   blanc select add <файл.conf> [имя] — импортировать конфиг WireGuard
 #   blanc select add socks5 1.2.3.4:1080 логин пароль [имя] — то же в формате «протокол айпи:порт»
 #   blanc select add socks5://1.2.3.4:1080:логин:пароль [имя]
 #   blanc select rm <имя>         — удалить свой прокси
@@ -23,9 +24,11 @@ PID_FILE="$HOME/.config/sing-box/blanc.pid"
 LOG_FILE="$HOME/Library/Logs/blanc-sing-box.log"
 SELECT_SCRIPT="$HOME/.local/share/blanc/select.py"
 
-# Достаёт адрес сервера Blanc из конфига sing-box (plutil умеет читать JSON).
+# Достаёт адрес сервера из конфига sing-box (plutil умеет читать JSON).
+# WireGuard лежит в endpoints, остальные протоколы — в outbounds.
 get_server_host() {
-  plutil -extract outbounds.0.server raw -o - "$SING_BOX_CONFIG"
+  plutil -extract outbounds.0.server raw -o - "$SING_BOX_CONFIG" 2>/dev/null \
+    || plutil -extract endpoints.0.peers.0.address raw -o - "$SING_BOX_CONFIG"
 }
 
 # Резолвит хост в IPv4; если уже IP — возвращает как есть.
@@ -113,7 +116,7 @@ show_status() {
 
 case "${1:-}" in
   "")
-    sed -n '6,16p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '6,17p' "$0" | sed 's/^# \{0,1\}//'
     exit 1
     ;;
   stop)

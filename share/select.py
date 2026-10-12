@@ -10,8 +10,12 @@
     blanc select add socks5://айпи:порт:логин:пароль [имя]
     blanc select rm <имя>           — удалить свой прокси
 
+    blanc select add <файл.conf> [имя] — импортировать конфиг WireGuard
+
 Поддерживаемые ссылки: vless://, vmess://, trojan://, ss://, hysteria2:// (hy2://),
-socks5:// (socks://), http://, https://. Можно передать несколько ссылок через перевод строки.
+wireguard:// (wg://), socks5:// (socks://), http://, https://.
+Можно передать несколько ссылок через перевод строки.
+Подписка — base64 или обычный текст, по одной ссылке в строке.
 
 URL подписки хранится в ~/.config/sing-box/blanc.sub,
 свои прокси — в ~/.config/sing-box/custom.txt (по одной ссылке в строке, имя во фрагменте #…).
@@ -32,8 +36,12 @@ SING_BOX_CONFIG = os.path.join(CONFIG_DIR, "blanc.json")
 SOCKS_PORT = 1080
 PLAIN_PROXY_SCHEMES = ("socks", "socks5", "http", "https")
 SUPPORTED_SCHEMES = (
-    "vless", "vmess", "trojan", "ss", "hysteria2", "hy2", "socks", "socks5", "http", "https",
+    "vless", "vmess", "trojan", "ss", "hysteria2", "hy2", "wireguard", "wg",
+    "socks", "socks5", "http", "https",
 )
+WIREGUARD_SCHEMES = ("wireguard", "wg")
+# Поля AmneziaWG: sing-box их не поддерживает, такой конфиг не заработает
+AMNEZIA_FIELDS = ("jc", "jmin", "jmax", "s1", "s2", "h1", "h2", "h3", "h4")
 
 
 def decode_base64(text):
@@ -60,9 +68,19 @@ def fetch_subscription_links():
     except OSError as error:
         print(f"blanc: подписка недоступна ({error}), показываю только свои", file=sys.stderr)
         return []
-    # Подписка отдаётся base64-строкой без паддинга
-    decoded = decode_base64(raw)
-    return [line.strip() for line in decoded.splitlines() if line.startswith("vless://")]
+    # Обычно подписка — base64 без паддинга, но бывает и открытым текстом.
+    # b64decode молча выкидывает «://», поэтому открытый текст определяем заранее.
+    if b"://" in raw:
+        decoded = raw.decode(errors="replace")
+    else:
+        try:
+            decoded = decode_base64(raw)
+        except ValueError:
+            decoded = ""
+    return [
+        line.strip() for line in decoded.splitlines()
+        if line.split("://", 1)[0].strip().lower() in SUPPORTED_SCHEMES
+    ]
 
 
 def read_custom_links():
@@ -229,6 +247,95 @@ def build_hysteria2(parts, params):
     return outbound
 
 
+def first_param(params, *names):
+    """Возвращает значение первого непустого параметра из списка синонимов."""
+    for name in names:
+        if params.get(name):
+            return params[name]
+    return ""
+
+
+def build_wireguard(parts, params):
+    """Преобразует wireguard:// (wg://) в endpoint sing-box.
+
+    Понимает форматы v2rayN (ключ в userinfo, publickey/address) и Hiddify (pk/peer_pk/local_address).
+    """
+    if any(field in params for field in AMNEZIA_FIELDS):
+        raise ValueError("AmneziaWG sing-box не поддерживает")
+    private_key = urllib.parse.unquote(parts.username or "") or first_param(params, "privatekey", "pk", "private_key")
+    public_key = first_param(params, "publickey", "peer_pk", "public_key", "peer_public_key")
+    addresses = first_param(params, "address", "local_address", "ip")
+    if not (private_key and public_key and addresses):
+        raise ValueError("в WireGuard-ссылке нужны приватный ключ, publickey и address")
+    peer = {
+        "address": parts.hostname,
+        "port": parts.port or 51820,
+        "public_key": public_key,
+        "allowed_ips": ["0.0.0.0/0", "::/0"],
+    }
+    pre_shared_key = first_param(params, "presharedkey", "psk", "pre_shared_key")
+    if pre_shared_key:
+        peer["pre_shared_key"] = pre_shared_key
+    if params.get("reserved"):
+        peer["reserved"] = [int(byte) for byte in params["reserved"].split(",")]
+    if params.get("keepalive"):
+        peer["persistent_keepalive_interval"] = int(params["keepalive"])
+    endpoint = {
+        "type": "wireguard",
+        "address": [
+            # Адрес без маски — это один хост
+            address.strip() if "/" in address else address.strip() + ("/128" if ":" in address else "/32")
+            for address in addresses.split(",") if address.strip()
+        ],
+        "private_key": private_key,
+        "peers": [peer],
+    }
+    if params.get("mtu"):
+        endpoint["mtu"] = int(params["mtu"])
+    return endpoint
+
+
+def wireguard_conf_to_link(conf_text, fallback_name):
+    """Превращает файл конфигурации WireGuard (.conf) в ссылку wireguard://.
+
+    Берёт секцию [Interface] и первый [Peer]; DNS и AllowedIPs игнорирует —
+    sing-box шлёт в туннель только трафик приложений, запущенных через blanc.
+    """
+    sections = {}
+    current_section = None
+    for raw_line in conf_text.splitlines():
+        line = raw_line.split("#", 1)[0].strip()
+        if not line:
+            continue
+        if line.startswith("[") and line.endswith("]"):
+            current_section = line[1:-1].strip().lower()
+            # Нужен только первый [Peer]
+            if current_section in sections:
+                current_section = None
+            else:
+                sections[current_section] = {}
+            continue
+        if current_section and "=" in line:
+            key, value = line.split("=", 1)
+            sections[current_section][key.strip().lower()] = value.strip()
+    interface = sections.get("interface", {})
+    peer = sections.get("peer", {})
+    if any(field in interface for field in AMNEZIA_FIELDS):
+        raise ValueError("AmneziaWG sing-box не поддерживает")
+    if not (interface.get("privatekey") and peer.get("publickey") and peer.get("endpoint")):
+        raise ValueError("в конфиге нет PrivateKey, PublicKey или Endpoint")
+    params = {"publickey": peer["publickey"], "address": interface.get("address", "").replace(" ", "")}
+    if peer.get("presharedkey"):
+        params["presharedkey"] = peer["presharedkey"]
+    if interface.get("mtu"):
+        params["mtu"] = interface["mtu"]
+    if peer.get("persistentkeepalive"):
+        params["keepalive"] = peer["persistentkeepalive"]
+    private_key = urllib.parse.quote(interface["privatekey"], safe="")
+    query = urllib.parse.urlencode(params)
+    return f"wireguard://{private_key}@{peer['endpoint']}?{query}#{urllib.parse.quote(fallback_name)}"
+
+
 def build_plain_proxy(parts, scheme):
     """Преобразует socks5:// / http:// / https:// в outbound."""
     is_socks = scheme in ("socks", "socks5")
@@ -263,23 +370,35 @@ def build_outbound(link):
             outbound = build_vless_or_trojan(parts, params, scheme)
         elif scheme in ("hysteria2", "hy2"):
             outbound = build_hysteria2(parts, params)
+        elif scheme in WIREGUARD_SCHEMES:
+            outbound = build_wireguard(parts, params)
         else:
             outbound = build_plain_proxy(parts, scheme)
-    if not outbound.get("server"):
+    server = outbound["peers"][0]["address"] if outbound["type"] == "wireguard" else outbound.get("server")
+    if not server:
         raise ValueError("в ссылке нет адреса сервера")
-    # tag фиксированный — get_server_host в blanc читает outbounds.0.server
+    # tag фиксированный — на него ссылается route.final
     return {"tag": "blanc", **outbound}
 
 
 def write_config(link):
-    """Пишет конфиг sing-box с локальным SOCKS5 и выбранным сервером."""
+    """Пишет конфиг sing-box с локальным SOCKS5 и выбранным сервером.
+
+    WireGuard в sing-box 1.13+ — это endpoint, а не outbound; get_server_host в blanc
+    читает адрес из outbounds.0.server или endpoints.0.peers.0.address.
+    """
+    outbound = build_outbound(link)
     config = {
         "log": {"level": "warn", "timestamp": True},
         "inbounds": [
             {"type": "mixed", "tag": "mixed-in", "listen": "127.0.0.1", "listen_port": SOCKS_PORT}
         ],
-        "outbounds": [build_outbound(link)],
     }
+    if outbound["type"] == "wireguard":
+        config["endpoints"] = [outbound]
+    else:
+        config["outbounds"] = [outbound]
+    config["route"] = {"final": outbound["tag"]}
     file_descriptor = os.open(SING_BOX_CONFIG, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     with os.fdopen(file_descriptor, "w") as config_file:
         json.dump(config, config_file, ensure_ascii=False, indent=2)
@@ -356,6 +475,16 @@ def parse_links_to_add(arguments):
     plain_link = plain_tokens_to_link(arguments)
     if plain_link:
         return [plain_link]
+    # Путь к файлу .conf WireGuard
+    conf_path = os.path.expanduser(arguments[0])
+    if arguments[0].lower().endswith(".conf") and os.path.isfile(conf_path):
+        with open(conf_path) as conf_file:
+            fallback_name = os.path.splitext(os.path.basename(conf_path))[0]
+            try:
+                link = wireguard_conf_to_link(conf_file.read(), fallback_name)
+            except ValueError as error:
+                sys.exit(f"blanc: не разобрал {arguments[0]} ({error})")
+        return [(link, " ".join(arguments[1:]))]
     first_argument, name = arguments[0], " ".join(arguments[1:])
     parsed_links = []
     for line in first_argument.splitlines():
@@ -408,7 +537,7 @@ def remove_custom_proxy(query):
 def print_list(custom_links, subscription_links):
     """Печатает свои прокси и серверы подписки, отмечая текущий звёздочкой."""
     current_name = read_current_name()
-    for title, links in (("свои", custom_links), ("Blanc", subscription_links)):
+    for title, links in (("свои", custom_links), ("подписка", subscription_links)):
         if not links:
             continue
         print(f"— {title}:")
@@ -423,7 +552,7 @@ def main():
     arguments = sys.argv[1:]
     if arguments and arguments[0] == "add":
         if len(arguments) < 2:
-            sys.exit("blanc: укажи ссылку: add <ссылка> [имя]")
+            sys.exit("blanc: укажи ссылку или файл: add <ссылка|файл.conf> [имя]")
         add_custom_proxies(arguments[1:])
         return
     if arguments and arguments[0] in ("rm", "remove"):

@@ -1,6 +1,6 @@
 # blanc
 
-Run a single app or command through BlancVPN (or your own proxy) on macOS, without routing the whole system.
+Run a single app or command through BlancVPN (or any other proxy/VPN key) on macOS, without routing the whole system.
 
 `blanc` starts a local [sing-box](https://sing-box.sagernet.org) instance with a mixed HTTP + SOCKS5 inbound on `127.0.0.1:1080`, then launches the target through it:
 
@@ -45,13 +45,32 @@ blanc stop                      stop sing-box
 blanc status                    route to server, SOCKS state, external IP
 blanc select                    list servers (subscription + custom), * = current
 blanc select <name>             switch server (sing-box restarts if running)
-blanc select add <link> [name]  add a custom proxy (vless/vmess/trojan/ss/hy2/socks5/http)
+blanc select add <link> [name]  add a custom proxy (vless/vmess/trojan/ss/hy2/wg/socks5/http)
+blanc select add <file.conf> [name]  import a WireGuard config
 blanc select add socks5 1.2.3.4:1080 login password [name]
 blanc select add socks5://1.2.3.4:1080:login:password [name]
 blanc select rm <name>          remove a custom proxy
 ```
 
 For `blanc app`, quit the running instance first, otherwise macOS hands the launch to it without the proxy flag.
+
+## Supported protocols
+
+| Protocol | Link schemes | Notes |
+|---|---|---|
+| VLESS | `vless://` | TLS, Reality, ws, grpc, http, httpupgrade |
+| VMess | `vmess://` | v2rayN base64 JSON |
+| Trojan | `trojan://` | |
+| Shadowsocks | `ss://` | SIP002 and legacy base64, Outline keys |
+| Hysteria2 | `hysteria2://`, `hy2://` | obfs supported |
+| WireGuard | `wireguard://`, `wg://`, `.conf` file | v2rayN and Hiddify link formats |
+| SOCKS5 / HTTP(S) | `socks5://`, `socks://`, `http://`, `https://` | optional login/password |
+
+Not supported: AmneziaWG (rejected with an error), OpenVPN, IKEv2/IPsec, L2TP, and the `xhttp` transport (sing-box does not implement it).
+
+Subscriptions can be base64 or plain text, one link per line. Lines with unsupported schemes are skipped. Clash YAML and sing-box JSON subscriptions are not supported.
+
+WireGuard runs over UDP. If another VPN drops UDP to the WireGuard server, use a TCP-based protocol instead.
 
 ## Files (not in the repo)
 
