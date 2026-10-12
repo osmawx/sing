@@ -1,8 +1,8 @@
-# blanc
+# sing
 
-Run a single app or command through BlancVPN (or any other proxy/VPN key) on macOS, without routing the whole system.
+Run a single app or command through a proxy or VPN key (BlancVPN subscription, VLESS, WireGuard and more) on macOS, without routing the whole system.
 
-`blanc` starts a local [sing-box](https://sing-box.sagernet.org) instance with a mixed HTTP + SOCKS5 inbound on `127.0.0.1:1080`, then launches the target through it:
+`sing` starts a local [sing-box](https://sing-box.sagernet.org) instance with a mixed HTTP + SOCKS5 inbound on `127.0.0.1:1080`, then launches the target through it:
 
 - CLI commands go through `proxychains4` plus `HTTP_PROXY` / `HTTPS_PROXY` / `ALL_PROXY` env vars (static Go/Bun/Node binaries ignore proxychains, so they use the env vars).
 - GUI Electron/Chromium apps are started with `--proxy-server`, because Chromium ignores proxy env vars and breaks under proxychains.
@@ -23,36 +23,36 @@ The script symlinks the repo files into place:
 
 | Repo file | Installed path |
 |---|---|
-| `bin/blanc` | `~/.local/bin/blanc` |
-| `share/select.py` | `~/.local/share/blanc/select.py` |
-| `proxychains/blanc.conf` | `~/.proxychains/blanc.conf` |
+| `bin/sing` | `~/.local/bin/sing` |
+| `share/select.py` | `~/.local/share/sing/select.py` |
+| `proxychains/sing.conf` | `~/.proxychains/sing.conf` |
 
-Existing regular files are kept as `*.bak`. Make sure `~/.local/bin` is on `PATH`.
+Existing regular files are kept as `*.bak`. Files from the old `blanc` version (`blanc.sub`, `blanc.json`, `blanc.current`) are renamed to `sing.*`. Make sure `~/.local/bin` is on `PATH`.
 
-Then put the subscription URL into `~/.config/sing-box/blanc.sub` (see `config/blanc.sub.example`), `chmod 600` it, and pick a server:
+Then put the subscription URL into `~/.config/sing-box/sing.sub` (see `config/sing.sub.example`), `chmod 600` it, and pick a server:
 
 ```bash
-blanc select
-blanc select Amsterdam
+sing select
+sing select Amsterdam
 ```
 
 ## Usage
 
 ```
-blanc <command> [args]          run a command through Blanc
-blanc app <Name.app>            run a GUI/Electron app (Claude, Slack, Chrome…)
-blanc stop                      stop sing-box
-blanc status                    route to server, SOCKS state, external IP
-blanc select                    list servers (subscription + custom), * = current
-blanc select <name>             switch server (sing-box restarts if running)
-blanc select add <link> [name]  add a custom proxy (vless/vmess/trojan/ss/hy2/wg/socks5/http)
-blanc select add <file.conf> [name]  import a WireGuard config
-blanc select add socks5 1.2.3.4:1080 login password [name]
-blanc select add socks5://1.2.3.4:1080:login:password [name]
-blanc select rm <name>          remove a custom proxy
+sing <command> [args]          run a command through the proxy
+sing app <Name.app>            run a GUI/Electron app (Claude, Slack, Chrome…)
+sing stop                      stop sing-box
+sing status                    route to server, SOCKS state, external IP
+sing select                    list servers (subscription + custom), * = current
+sing select <name>             switch server (sing-box restarts if running)
+sing select add <link> [name]  add a custom proxy (vless/vmess/trojan/ss/hy2/wg/socks5/http)
+sing select add <file.conf> [name]  import a WireGuard config
+sing select add socks5 1.2.3.4:1080 login password [name]
+sing select add socks5://1.2.3.4:1080:login:password [name]
+sing select rm <name>          remove a custom proxy
 ```
 
-For `blanc app`, quit the running instance first, otherwise macOS hands the launch to it without the proxy flag.
+For `sing app`, quit the running instance first, otherwise macOS hands the launch to it without the proxy flag.
 
 ## Supported protocols
 
@@ -76,13 +76,13 @@ WireGuard runs over UDP. If another VPN drops UDP to the WireGuard server, use a
 
 All live in `~/.config/sing-box/` and contain secrets. They are ignored by `.gitignore`:
 
-- `blanc.sub`: subscription URL
+- `sing.sub`: subscription URL
 - `custom.txt`: custom proxy links, one per line (see `config/custom.txt.example`)
-- `blanc.json`: generated sing-box config
-- `blanc.current`, `blanc.pid`: runtime state
+- `sing.json`: generated sing-box config
+- `sing.current`, `sing.pid`: runtime state
 
-Logs go to `~/Library/Logs/blanc-sing-box.log`.
+Logs go to `~/Library/Logs/sing.log`.
 
 ## Running alongside another VPN
 
-If another VPN is active, blocks traffic outside its tunnel and removes foreign routes, the connection to the Blanc server goes through that VPN. The payload stays encrypted end to end.
+If another VPN is active, blocks traffic outside its tunnel and removes foreign routes, the connection to the proxy server goes through that VPN. The payload stays encrypted end to end.

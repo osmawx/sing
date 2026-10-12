@@ -1,28 +1,28 @@
 #!/usr/bin/env bash
-# Запуск одного приложения через BlancVPN (sing-box HTTP/SOCKS5 + proxychains4).
+# Запуск одного приложения через прокси или VPN-ключ (sing-box HTTP/SOCKS5 + proxychains4).
 # Если активен другой VPN, который блокирует трафик мимо своего туннеля и удаляет
-# чужие маршруты, соединение с сервером Blanc идёт через него (содержимое зашифровано).
+# чужие маршруты, соединение с сервером идёт через него (содержимое зашифровано).
 #
 # Использование:
-#   blanc <команда> [аргументы]   — запустить команду через Blanc
-#   blanc app <Имя.app>           — GUI/Electron-приложение (Claude, Slack, Chrome…)
-#   blanc stop                    — остановить sing-box
-#   blanc status                  — показать состояние
-#   blanc select                  — список серверов (подписка Blanc + свои), * — текущий
-#   blanc select <имя>            — переключиться на сервер (sing-box перезапустится)
-#   blanc select add <ссылка> [имя] — добавить свой прокси (vless/vmess/trojan/ss/hy2/wg/socks5/http)
-#   blanc select add <файл.conf> [имя] — импортировать конфиг WireGuard
-#   blanc select add socks5 1.2.3.4:1080 логин пароль [имя] — то же в формате «протокол айпи:порт»
-#   blanc select add socks5://1.2.3.4:1080:логин:пароль [имя]
-#   blanc select rm <имя>         — удалить свой прокси
+#   sing <команда> [аргументы]   — запустить команду через прокси
+#   sing app <Имя.app>           — GUI/Electron-приложение (Claude, Slack, Chrome…)
+#   sing stop                    — остановить sing-box
+#   sing status                  — показать состояние
+#   sing select                  — список серверов (подписка + свои), * — текущий
+#   sing select <имя>            — переключиться на сервер (sing-box перезапустится)
+#   sing select add <ссылка> [имя] — добавить свой прокси (vless/vmess/trojan/ss/hy2/wg/socks5/http)
+#   sing select add <файл.conf> [имя] — импортировать конфиг WireGuard
+#   sing select add socks5 1.2.3.4:1080 логин пароль [имя] — то же в формате «протокол айпи:порт»
+#   sing select add socks5://1.2.3.4:1080:логин:пароль [имя]
+#   sing select rm <имя>         — удалить свой прокси
 set -euo pipefail
 
-SING_BOX_CONFIG="$HOME/.config/sing-box/blanc.json"
-PROXYCHAINS_CONFIG="$HOME/.proxychains/blanc.conf"
+SING_BOX_CONFIG="$HOME/.config/sing-box/sing.json"
+PROXYCHAINS_CONFIG="$HOME/.proxychains/sing.conf"
 SOCKS_PORT=1080
-PID_FILE="$HOME/.config/sing-box/blanc.pid"
-LOG_FILE="$HOME/Library/Logs/blanc-sing-box.log"
-SELECT_SCRIPT="$HOME/.local/share/blanc/select.py"
+PID_FILE="$HOME/.config/sing-box/sing.pid"
+LOG_FILE="$HOME/Library/Logs/sing.log"
+SELECT_SCRIPT="$HOME/.local/share/sing/select.py"
 
 # Достаёт адрес сервера из конфига sing-box (plutil умеет читать JSON).
 # WireGuard лежит в endpoints, остальные протоколы — в outbounds.
@@ -57,16 +57,16 @@ ensure_sing_box_running() {
     is_socks_listening && return
     sleep 0.1
   done
-  echo "blanc: sing-box не поднялся, см. $LOG_FILE" >&2
+  echo "sing: sing-box не поднялся, см. $LOG_FILE" >&2
   exit 1
 }
 
 # Останавливает фоновый sing-box, запущенный этим скриптом.
 stop_sing_box() {
   if [[ -f "$PID_FILE" ]] && kill "$(cat "$PID_FILE")" 2>/dev/null; then
-    echo "blanc: sing-box остановлен"
+    echo "sing: sing-box остановлен"
   else
-    echo "blanc: sing-box не запущен"
+    echo "sing: sing-box не запущен"
   fi
   rm -f "$PID_FILE"
 }
@@ -86,19 +86,19 @@ launch_app() {
     [[ -d "$app_path" ]] || app_path="$HOME/Applications/$app_name.app"
   fi
   if [[ ! -d "$app_path" ]]; then
-    echo "blanc: не найдено $app_path" >&2
+    echo "sing: не найдено $app_path" >&2
     exit 1
   fi
   app_name="$(basename "$app_path" .app)"
   executable_name="$(defaults read "$app_path/Contents/Info" CFBundleExecutable)"
   if pgrep -xq "$executable_name"; then
-    echo "blanc: $app_name уже запущен — закрой его (Cmd+Q) и повтори" >&2
+    echo "sing: $app_name уже запущен — закрой его (Cmd+Q) и повтори" >&2
     exit 1
   fi
   nohup "$app_path/Contents/MacOS/$executable_name" \
     --proxy-server="http://127.0.0.1:$SOCKS_PORT" \
     --proxy-bypass-list="localhost;127.0.0.1;::1" "$@" >/dev/null 2>&1 &
-  echo "blanc: $app_name запущен через Blanc"
+  echo "sing: $app_name запущен через прокси"
 }
 
 # Печатает маршрут до сервера, состояние SOCKS и внешний IP через туннель.
@@ -108,7 +108,7 @@ show_status() {
   echo "сервер:   $server_ip via $(route -n get "$server_ip" | awk '/interface:/ { print $2 }')"
   if is_socks_listening; then
     echo "socks:    127.0.0.1:$SOCKS_PORT слушает"
-    echo "внешний IP через Blanc: $(curl -s --max-time 10 --socks5-hostname 127.0.0.1:$SOCKS_PORT https://ifconfig.me)"
+    echo "внешний IP через прокси: $(curl -s --max-time 10 --socks5-hostname 127.0.0.1:$SOCKS_PORT https://ifconfig.me)"
   else
     echo "socks:    не запущен"
   fi
@@ -138,13 +138,13 @@ case "${1:-}" in
           stop_sing_box >/dev/null
           sleep 0.3
           ensure_sing_box_running
-          echo "blanc: sing-box перезапущен"
+          echo "sing: sing-box перезапущен"
         fi
         ;;
     esac
     ;;
   app)
-    [[ -n "${2:-}" ]] || { echo "blanc: укажи приложение, например: blanc app Claude" >&2; exit 1; }
+    [[ -n "${2:-}" ]] || { echo "sing: укажи приложение, например: sing app Claude" >&2; exit 1; }
     ensure_sing_box_running
     shift
     launch_app "$@"

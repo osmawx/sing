@@ -1,8 +1,8 @@
 # Secrets and runtime state — never commit
-blanc.json
-blanc.sub
-blanc.pid
-blanc.current
+sing.json
+sing.sub
+sing.pid
+sing.current
 custom.txt
 *.log
 .DS_Store

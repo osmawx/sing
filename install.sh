@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Устанавливает blanc: симлинки из репозитория в ~/.local/bin, ~/.local/share/blanc
+# Устанавливает sing: симлинки из репозитория в ~/.local/bin, ~/.local/share/sing
 # и ~/.proxychains. Существующие обычные файлы сохраняются с суффиксом .bak.
-# Секреты (blanc.sub, custom.txt, blanc.json) не трогает.
+# Секреты (sing.sub, custom.txt, sing.json) не трогает.
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -30,13 +30,25 @@ check_dependencies() {
   fi
 }
 
-link_file "$REPO_DIR/bin/blanc" "$HOME/.local/bin/blanc"
-link_file "$REPO_DIR/share/select.py" "$HOME/.local/share/blanc/select.py"
-link_file "$REPO_DIR/proxychains/blanc.conf" "$HOME/.proxychains/blanc.conf"
+link_file "$REPO_DIR/bin/sing" "$HOME/.local/bin/sing"
+link_file "$REPO_DIR/share/select.py" "$HOME/.local/share/sing/select.py"
+link_file "$REPO_DIR/proxychains/sing.conf" "$HOME/.proxychains/sing.conf"
+
+# Переносит файлы старой версии (blanc.*) в sing.*, если новых ещё нет.
+migrate_from_blanc() {
+  local suffix
+  for suffix in sub json current; do
+    if [[ -f "$CONFIG_DIR/blanc.$suffix" && ! -e "$CONFIG_DIR/sing.$suffix" ]]; then
+      mv "$CONFIG_DIR/blanc.$suffix" "$CONFIG_DIR/sing.$suffix"
+      echo "moved:  blanc.$suffix -> sing.$suffix"
+    fi
+  done
+}
 
 mkdir -p "$CONFIG_DIR"
-if [[ ! -f "$CONFIG_DIR/blanc.sub" ]]; then
-  echo "next:   положи URL подписки в $CONFIG_DIR/blanc.sub (chmod 600), затем: blanc select"
+migrate_from_blanc
+if [[ ! -f "$CONFIG_DIR/sing.sub" ]]; then
+  echo "next:   положи URL подписки в $CONFIG_DIR/sing.sub (chmod 600), затем: sing select"
 fi
 
 check_dependencies

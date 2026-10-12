@@ -1,23 +1,23 @@
 #!/usr/bin/env python3 -I
-"""Генерирует ~/.config/sing-box/blanc.json из подписки BlancVPN или своих прокси.
+"""Генерирует ~/.config/sing-box/sing.json из подписки (например, BlancVPN) или своих прокси.
 
 Использование:
-    Вызывается из blanc как «blanc select …»:
-    blanc select                    — список серверов (подписка + свои)
-    blanc select <подстрока>        — выбрать сервер по названию (например «Амстердам»)
-    blanc select add <ссылка> [имя] — добавить свой прокси
-    blanc select add <протокол> <айпи:порт> [логин пароль] [имя] — то же без ссылки
-    blanc select add socks5://айпи:порт:логин:пароль [имя]
-    blanc select rm <имя>           — удалить свой прокси
+    Вызывается из sing как «sing select …»:
+    sing select                    — список серверов (подписка + свои)
+    sing select <подстрока>        — выбрать сервер по названию (например «Амстердам»)
+    sing select add <ссылка> [имя] — добавить свой прокси
+    sing select add <протокол> <айпи:порт> [логин пароль] [имя] — то же без ссылки
+    sing select add socks5://айпи:порт:логин:пароль [имя]
+    sing select rm <имя>           — удалить свой прокси
 
-    blanc select add <файл.conf> [имя] — импортировать конфиг WireGuard
+    sing select add <файл.conf> [имя] — импортировать конфиг WireGuard
 
 Поддерживаемые ссылки: vless://, vmess://, trojan://, ss://, hysteria2:// (hy2://),
 wireguard:// (wg://), socks5:// (socks://), http://, https://.
 Можно передать несколько ссылок через перевод строки.
 Подписка — base64 или обычный текст, по одной ссылке в строке.
 
-URL подписки хранится в ~/.config/sing-box/blanc.sub,
+URL подписки хранится в ~/.config/sing-box/sing.sub,
 свои прокси — в ~/.config/sing-box/custom.txt (по одной ссылке в строке, имя во фрагменте #…).
 """
 
@@ -29,10 +29,10 @@ import urllib.parse
 import urllib.request
 
 CONFIG_DIR = os.path.expanduser("~/.config/sing-box")
-SUBSCRIPTION_FILE = os.path.join(CONFIG_DIR, "blanc.sub")
+SUBSCRIPTION_FILE = os.path.join(CONFIG_DIR, "sing.sub")
 CUSTOM_PROXIES_FILE = os.path.join(CONFIG_DIR, "custom.txt")
-CURRENT_SELECTION_FILE = os.path.join(CONFIG_DIR, "blanc.current")
-SING_BOX_CONFIG = os.path.join(CONFIG_DIR, "blanc.json")
+CURRENT_SELECTION_FILE = os.path.join(CONFIG_DIR, "sing.current")
+SING_BOX_CONFIG = os.path.join(CONFIG_DIR, "sing.json")
 SOCKS_PORT = 1080
 PLAIN_PROXY_SCHEMES = ("socks", "socks5", "http", "https")
 SUPPORTED_SCHEMES = (
@@ -56,7 +56,7 @@ def decode_base64(text):
 
 
 def fetch_subscription_links():
-    """Скачивает подписку Blanc и возвращает список ссылок; при ошибке — пустой список."""
+    """Скачивает подписку и возвращает список ссылок; при ошибке — пустой список."""
     if not os.path.exists(SUBSCRIPTION_FILE):
         return []
     with open(SUBSCRIPTION_FILE) as subscription:
@@ -66,7 +66,7 @@ def fetch_subscription_links():
         with urllib.request.urlopen(request, timeout=20) as response:
             raw = response.read().strip()
     except OSError as error:
-        print(f"blanc: подписка недоступна ({error}), показываю только свои", file=sys.stderr)
+        print(f"sing: подписка недоступна ({error}), показываю только свои", file=sys.stderr)
         return []
     # Обычно подписка — base64 без паддинга, но бывает и открытым текстом.
     # b64decode молча выкидывает «://», поэтому открытый текст определяем заранее.
@@ -299,7 +299,7 @@ def wireguard_conf_to_link(conf_text, fallback_name):
     """Превращает файл конфигурации WireGuard (.conf) в ссылку wireguard://.
 
     Берёт секцию [Interface] и первый [Peer]; DNS и AllowedIPs игнорирует —
-    sing-box шлёт в туннель только трафик приложений, запущенных через blanc.
+    sing-box шлёт в туннель только трафик приложений, запущенных через sing.
     """
     sections = {}
     current_section = None
@@ -378,13 +378,13 @@ def build_outbound(link):
     if not server:
         raise ValueError("в ссылке нет адреса сервера")
     # tag фиксированный — на него ссылается route.final
-    return {"tag": "blanc", **outbound}
+    return {"tag": "proxy", **outbound}
 
 
 def write_config(link):
     """Пишет конфиг sing-box с локальным SOCKS5 и выбранным сервером.
 
-    WireGuard в sing-box 1.13+ — это endpoint, а не outbound; get_server_host в blanc
+    WireGuard в sing-box 1.13+ — это endpoint, а не outbound; get_server_host в sing
     читает адрес из outbounds.0.server или endpoints.0.peers.0.address.
     """
     outbound = build_outbound(link)
@@ -443,7 +443,7 @@ def plain_tokens_to_link(tokens):
         credentials = f"{urllib.parse.quote(login, safe='')}:{urllib.parse.quote(password, safe='')}@"
         name_tokens = tokens[4:]
     elif len(tokens) == 3:
-        sys.exit("blanc: после адреса нужны и логин, и пароль (или ничего)")
+        sys.exit("sing: после адреса нужны и логин, и пароль (или ничего)")
     return f"{scheme}://{credentials}{address}", " ".join(name_tokens)
 
 
@@ -483,7 +483,7 @@ def parse_links_to_add(arguments):
             try:
                 link = wireguard_conf_to_link(conf_file.read(), fallback_name)
             except ValueError as error:
-                sys.exit(f"blanc: не разобрал {arguments[0]} ({error})")
+                sys.exit(f"sing: не разобрал {arguments[0]} ({error})")
         return [(link, " ".join(arguments[1:]))]
     first_argument, name = arguments[0], " ".join(arguments[1:])
     parsed_links = []
@@ -496,7 +496,7 @@ def parse_links_to_add(arguments):
             parsed_links.extend((token, "") for token in tokens if "://" in token)
     if name:
         if len(parsed_links) > 1:
-            sys.exit("blanc: имя можно задать только при добавлении одной ссылки")
+            sys.exit("sing: имя можно задать только при добавлении одной ссылки")
         parsed_links = [(link, name) for link, _ in parsed_links]
     return [(normalize_colon_link(link), link_name_override) for link, link_name_override in parsed_links]
 
@@ -505,7 +505,7 @@ def add_custom_proxies(arguments):
     """Проверяет и добавляет свои прокси в custom.txt."""
     new_links = parse_links_to_add(arguments)
     if not new_links:
-        sys.exit("blanc: не нашёл ни одного прокси (протокол://… или «протокол айпи:порт логин пароль»)")
+        sys.exit("sing: не нашёл ни одного прокси (протокол://… или «протокол айпи:порт логин пароль»)")
     custom_links = read_custom_links()
     existing_names = {link_name(link) for link in custom_links}
     for link, name in new_links:
@@ -514,14 +514,14 @@ def add_custom_proxies(arguments):
         try:
             build_outbound(link)
         except (ValueError, KeyError, IndexError) as error:
-            sys.exit(f"blanc: не разобрал ссылку ({error})")
+            sys.exit(f"sing: не разобрал ссылку ({error})")
         if link_name(link) in existing_names:
-            sys.exit(f"blanc: «{link_name(link)}» уже есть — задай другое имя")
+            sys.exit(f"sing: «{link_name(link)}» уже есть — задай другое имя")
         custom_links.append(link)
         existing_names.add(link_name(link))
         print(f"добавлен: {link_name(link)}")
     write_custom_links(custom_links)
-    print("выбрать: blanc select <имя>")
+    print("выбрать: sing select <имя>")
 
 
 def remove_custom_proxy(query):
@@ -529,7 +529,7 @@ def remove_custom_proxy(query):
     custom_links = read_custom_links()
     link_to_remove = find_link(custom_links, query)
     if not link_to_remove:
-        sys.exit(f"blanc: среди своих нет «{query}»")
+        sys.exit(f"sing: среди своих нет «{query}»")
     write_custom_links([link for link in custom_links if link != link_to_remove])
     print(f"удалён: {link_name(link_to_remove)}")
 
@@ -552,12 +552,12 @@ def main():
     arguments = sys.argv[1:]
     if arguments and arguments[0] == "add":
         if len(arguments) < 2:
-            sys.exit("blanc: укажи ссылку или файл: add <ссылка|файл.conf> [имя]")
+            sys.exit("sing: укажи ссылку или файл: add <ссылка|файл.conf> [имя]")
         add_custom_proxies(arguments[1:])
         return
     if arguments and arguments[0] in ("rm", "remove"):
         if len(arguments) < 2:
-            sys.exit("blanc: укажи имя: rm <имя>")
+            sys.exit("sing: укажи имя: rm <имя>")
         remove_custom_proxy(" ".join(arguments[1:]))
         return
 
@@ -569,11 +569,11 @@ def main():
     # Свои прокси ищем первыми — так не нужно ждать подписку
     selected_link = find_link(custom_links, query) or find_link(fetch_subscription_links(), query)
     if not selected_link:
-        sys.exit(f"blanc: нет сервера по запросу «{query}»")
+        sys.exit(f"sing: нет сервера по запросу «{query}»")
     try:
         write_config(selected_link)
     except (ValueError, KeyError, IndexError) as error:
-        sys.exit(f"blanc: не разобрал ссылку ({error})")
+        sys.exit(f"sing: не разобрал ссылку ({error})")
     print(f"выбран: {link_name(selected_link)}")
 
 
