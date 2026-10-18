@@ -1,0 +1,10 @@
+line-length = 120
+target-version = "py39"
+
+[lint]
+# pycodestyle, pyflakes, bugbear, pyupgrade, bandit (security), simplify
+select = ["E", "F", "W", "B", "UP", "S", "SIM"]
+
+[lint.per-file-ignores]
+# unittest asserts and fake credentials are fine in tests
+"tests/**" = ["S101", "S105", "S106", "S108"]
