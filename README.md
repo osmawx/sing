@@ -1,5 +1,8 @@
 # sing
 
+[![ci](https://github.com/osmawx/sing/actions/workflows/ci.yml/badge.svg)](https://github.com/osmawx/sing/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 Run a single app or command through a proxy or VPN key (BlancVPN subscription, VLESS, WireGuard and more) on macOS, without routing the whole system.
 
 `sing` starts a local [sing-box](https://sing-box.sagernet.org) instance with a mixed HTTP + SOCKS5 inbound on `127.0.0.1:1080`, then launches the target through it:
@@ -86,3 +89,11 @@ Logs go to `~/Library/Logs/sing.log`.
 ## Running alongside another VPN
 
 If another VPN is active, blocks traffic outside its tunnel and removes foreign routes, the connection to the proxy server goes through that VPN. The payload stays encrypted end to end.
+
+## Contributing and security
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for checks and style. Report vulnerabilities privately as described in [SECURITY.md](SECURITY.md). Never paste real links or keys into issues.
+
+## License
+
+[MIT](LICENSE)
