@@ -7,3 +7,5 @@ custom.txt
 *.log
 .DS_Store
 __pycache__/
+.coverage
+.ruff_cache/

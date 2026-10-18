@@ -1,0 +1,49 @@
+name: Bug report
+description: Something does not work as described in the README.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Never paste real subscription URLs, proxy links, keys or `sing.json`.** Replace hosts, UUIDs,
+        passwords and keys with fake values. Security problems go to a private advisory, not here.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: Command you ran, what you expected and what you got.
+    validations:
+      required: true
+  - type: dropdown
+    id: protocol
+    attributes:
+      label: Protocol
+      options: [VLESS, VMess, Trojan, Shadowsocks, Hysteria2, WireGuard, SOCKS5 / HTTP, Not related]
+    validations:
+      required: true
+  - type: textarea
+    id: link-shape
+    attributes:
+      label: Redacted link or config
+      description: The link with every secret replaced, so the format is visible.
+      render: text
+  - type: textarea
+    id: log
+    attributes:
+      label: Log
+      description: Relevant lines from `~/Library/Logs/sing.log`, redacted.
+      render: text
+  - type: input
+    id: versions
+    attributes:
+      label: Versions
+      description: macOS, `sing-box version`, `python3 --version`.
+    validations:
+      required: true
+  - type: checkboxes
+    id: redacted
+    attributes:
+      label: Check
+      options:
+        - label: I removed all real hosts, keys, passwords and subscription URLs.
+          required: true
