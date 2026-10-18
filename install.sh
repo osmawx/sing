@@ -37,7 +37,7 @@ link_file "$REPO_DIR/proxychains/sing.conf" "$HOME/.proxychains/sing.conf"
 # Переносит файлы старой версии (blanc.*) в sing.*, если новых ещё нет.
 migrate_from_blanc() {
   local suffix
-  for suffix in sub json current; do
+  for suffix in sub json current pid; do
     if [[ -f "$CONFIG_DIR/blanc.$suffix" && ! -e "$CONFIG_DIR/sing.$suffix" ]]; then
       mv "$CONFIG_DIR/blanc.$suffix" "$CONFIG_DIR/sing.$suffix"
       echo "moved:  blanc.$suffix -> sing.$suffix"

@@ -27,7 +27,7 @@ The script symlinks the repo files into place:
 | `share/select.py` | `~/.local/share/sing/select.py` |
 | `proxychains/sing.conf` | `~/.proxychains/sing.conf` |
 
-Existing regular files are kept as `*.bak`. Files from the old `blanc` version (`blanc.sub`, `blanc.json`, `blanc.current`) are renamed to `sing.*`. Make sure `~/.local/bin` is on `PATH`.
+Existing regular files are kept as `*.bak`. Files from the old `blanc` version (`blanc.sub`, `blanc.json`, `blanc.current`, `blanc.pid`) are renamed to `sing.*`. Make sure `~/.local/bin` is on `PATH`.
 
 Then put the subscription URL into `~/.config/sing-box/sing.sub` (see `config/sing.sub.example`), `chmod 600` it, and pick a server:
 
