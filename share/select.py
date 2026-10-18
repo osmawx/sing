@@ -61,9 +61,13 @@ def fetch_subscription_links():
         return []
     with open(SUBSCRIPTION_FILE) as subscription:
         url = subscription.read().strip()
+    # urlopen понимает и file://, поэтому пускаем только http(s)
+    if urllib.parse.urlsplit(url).scheme.lower() not in ("http", "https"):
+        print("sing: в sing.sub нужен http(s)-URL, показываю только свои", file=sys.stderr)
+        return []
     try:
-        request = urllib.request.Request(url, headers={"User-Agent": "sing-box"})
-        with urllib.request.urlopen(request, timeout=20) as response:
+        request = urllib.request.Request(url, headers={"User-Agent": "sing-box"})  # noqa: S310 — схема проверена выше
+        with urllib.request.urlopen(request, timeout=20) as response:  # noqa: S310
             raw = response.read().strip()
     except OSError as error:
         print(f"sing: подписка недоступна ({error}), показываю только свои", file=sys.stderr)
