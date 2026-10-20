@@ -134,7 +134,16 @@ def link_name(link):
         except ValueError:
             pass
     name = urllib.parse.unquote(urllib.parse.urlsplit(link).fragment)
-    return name or link.split("://", 1)[-1].split("@")[-1].split("?")[0].split("#")[0]
+    return name or link_endpoint_label(link)
+
+
+def link_endpoint_label(link):
+    """Имя по умолчанию: только host:port, без логина и пароля (формат host:port:login:password тоже)."""
+    authority = link.split("://", 1)[-1].split("#")[0].split("?")[0].split("/")[0]
+    endpoint = authority.split("@")[-1]
+    if endpoint.startswith("["):
+        return endpoint
+    return ":".join(endpoint.split(":")[:2])
 
 
 def set_link_name(link, name):

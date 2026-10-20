@@ -45,6 +45,12 @@ class LinkNameTest(unittest.TestCase):
     def test_falls_back_to_host_without_fragment(self):
         self.assertEqual(sing_select.link_name("socks5://user:pass@1.2.3.4:1080"), "1.2.3.4:1080")
 
+    def test_fallback_name_never_contains_credentials(self):
+        for link in ("socks5://1.2.3.4:1080:login:secret", "http://login:secret@1.2.3.4:8080?x=1", "socks5://[::1]:1080"):
+            self.assertNotIn("secret", sing_select.link_name(link))
+        self.assertEqual(sing_select.link_name("socks5://1.2.3.4:1080:login:secret"), "1.2.3.4:1080")
+        self.assertEqual(sing_select.link_name("socks5://[::1]:1080"), "[::1]:1080")
+
     def test_reads_vmess_ps_field(self):
         payload = base64.b64encode(json.dumps({"ps": "Vmess-Node"}).encode()).decode()
         self.assertEqual(sing_select.link_name("vmess://" + payload), "Vmess-Node")
