@@ -217,6 +217,26 @@ class IsolatedConfigTestCase(unittest.TestCase):
             patcher.start()
             self.addCleanup(patcher.stop)
         self.config_dir = config_dir
+        # Тесты не ходят в сеть за страной сервера; конкретные тесты подменяют результат
+        lookup_patcher = mock.patch.object(sing_select, "lookup_country_code", return_value="")
+        self.lookup_country_code = lookup_patcher.start()
+        self.addCleanup(lookup_patcher.stop)
+
+
+class FlagHelpersTest(unittest.TestCase):
+    """Country code to flag emoji helpers."""
+
+    def test_country_code_to_flag(self):
+        self.assertEqual(sing_select.country_code_to_flag("gb"), "🇬🇧")
+
+    def test_invalid_country_code_raises(self):
+        with self.assertRaises(ValueError):
+            sing_select.country_code_to_flag("GBR")
+
+    def test_strip_and_detect_flag(self):
+        self.assertTrue(sing_select.has_flag("🇬🇧 MyUK"))
+        self.assertEqual(sing_select.strip_flag("🇬🇧 MyUK"), "MyUK")
+        self.assertFalse(sing_select.has_flag("MyUK"))
 
 
 class FilesTest(IsolatedConfigTestCase):
@@ -286,6 +306,39 @@ class CommandsTest(IsolatedConfigTestCase):
         self.assertIn("* Node", self.run_main())
         self.assertIn("удалён: Node", self.run_main("rm", "Node"))
         self.assertEqual(sing_select.read_custom_links(), [])
+
+    def test_add_detects_flag_from_server_country(self):
+        self.lookup_country_code.return_value = "GB"
+
+        self.assertIn("добавлен: 🇬🇧 Node", self.run_main("add", "trojan://a@h.example", "Node"))
+
+    def test_add_keeps_existing_flag(self):
+        self.lookup_country_code.return_value = "GB"
+        self.run_main("add", "trojan://a@h.example", "🇱🇹 Node")
+
+        self.assertEqual(sing_select.link_name(sing_select.read_custom_links()[0]), "🇱🇹 Node")
+
+    def test_flag_command_sets_explicit_country_and_updates_current(self):
+        self.run_main("add", "trojan://a@h.example", "Node")
+        self.run_main("node")
+
+        self.assertIn("Node → 🇩🇪 Node", self.run_main("flag", "Node", "de"))
+        self.assertEqual(sing_select.read_current_name(), "🇩🇪 Node")
+
+    def test_flag_command_replaces_old_flag(self):
+        self.run_main("add", "trojan://a@h.example", "🇱🇹 Node")
+        self.run_main("flag", "Node", "GB")
+
+        self.assertEqual(sing_select.link_name(sing_select.read_custom_links()[0]), "🇬🇧 Node")
+
+    def test_flag_command_without_detection_exits(self):
+        self.run_main("add", "trojan://a@h.example", "Node")
+        with self.assertRaises(SystemExit):
+            self.run_main("flag", "Node")
+
+    def test_flag_command_unknown_proxy_exits(self):
+        with self.assertRaises(SystemExit):
+            self.run_main("flag", "Nope", "GB")
 
     def test_add_duplicate_name_exits(self):
         self.run_main("add", "trojan://a@h.example#Node")
