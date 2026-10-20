@@ -211,6 +211,7 @@ class IsolatedConfigTestCase(unittest.TestCase):
             "CUSTOM_PROXIES_FILE": config_dir / "custom.txt",
             "CURRENT_SELECTION_FILE": config_dir / "sing.current",
             "SING_BOX_CONFIG": config_dir / "sing.json",
+            "EXCEPTIONS_FILE": config_dir / "exceptions.json",
         }
         for attribute, path in patched_paths.items():
             patcher = mock.patch.object(sing_select, attribute, str(path))
@@ -221,6 +222,91 @@ class IsolatedConfigTestCase(unittest.TestCase):
         lookup_patcher = mock.patch.object(sing_select, "lookup_country_code", return_value="")
         self.lookup_country_code = lookup_patcher.start()
         self.addCleanup(lookup_patcher.stop)
+
+
+class ExceptionsTest(IsolatedConfigTestCase):
+    """Исключения: домены мимо прокси и режим «все российские зоны»."""
+
+    def run_main(self, *arguments, stdin=""):
+        """Запускает main() и возвращает stdout."""
+        with mock.patch.object(sing_select.sys, "argv", ["select.py", *arguments]), \
+                mock.patch("sys.stdin", io.StringIO(stdin)), \
+                mock.patch("sys.stdout", new_callable=io.StringIO) as stdout:
+            sing_select.main()
+        return stdout.getvalue()
+
+    def test_normalize_domain(self):
+        self.assertEqual(sing_select.normalize_domain("https://WWW.Example.com:8443/x"), "www.example.com")
+        self.assertEqual(sing_select.normalize_domain("*.example.com"), "example.com")
+        self.assertEqual(sing_select.normalize_domain("пример.рф"), "xn--e1afmkfd.xn--p1ai")
+        for bad_value in ("", "localhost", "1.2.3.4", "a_b.com", "not a domain"):
+            self.assertIsNone(sing_select.normalize_domain(bad_value), bad_value)
+
+    def test_add_and_remove_domains(self):
+        self.run_main("exceptions", "add", "Example.com", "https://site.org/path")
+        self.assertEqual(sing_select.read_exceptions()["domains"], ["example.com", "site.org"])
+
+        self.run_main("exceptions", "rm", "example.com")
+        self.assertEqual(sing_select.read_exceptions()["domains"], ["site.org"])
+
+    def test_invalid_domain_exits(self):
+        with self.assertRaises(SystemExit):
+            self.run_main("exceptions", "add", "localhost")
+
+    def test_ru_switch_and_route(self):
+        self.run_main("exceptions", "add", "example.com")
+        self.run_main("exceptions", "ru", "on")
+
+        route = sing_select.build_route("proxy")
+
+        self.assertEqual(route["final"], "proxy")
+        self.assertEqual(route["rules"][0]["outbound"], "direct")
+        self.assertIn("example.com", route["rules"][0]["domain_suffix"])
+        self.assertIn("ru", route["rules"][0]["domain_suffix"])
+        self.assertIn("xn--p1ai", route["rules"][0]["domain_suffix"])
+
+    def test_no_rules_without_exceptions(self):
+        self.assertEqual(sing_select.build_route("proxy"), {"final": "proxy"})
+
+    def test_write_config_includes_exceptions_and_direct_outbound(self):
+        self.run_main("exceptions", "add", "example.com")
+        sing_select.write_config("trojan://a@h.example#N")
+
+        config = json.loads(Path(sing_select.SING_BOX_CONFIG).read_text())
+
+        self.assertEqual(config["outbounds"][0]["type"], "trojan")
+        self.assertEqual(config["outbounds"][1], {"type": "direct", "tag": "direct"})
+        self.assertEqual(config["route"]["rules"][0]["domain_suffix"], ["example.com"])
+
+    def test_changing_exceptions_updates_existing_config(self):
+        sing_select.write_config("trojan://a@h.example#N")
+        self.run_main("exceptions", "add", "example.com")
+
+        config = json.loads(Path(sing_select.SING_BOX_CONFIG).read_text())
+
+        self.assertEqual(config["route"]["final"], "proxy")
+        self.assertEqual(config["route"]["rules"][0]["domain_suffix"], ["example.com"])
+
+    def test_old_config_without_direct_gets_direct_outbound(self):
+        old_config = {"outbounds": [{"type": "trojan", "tag": "proxy"}], "route": {"final": "proxy"}}
+        Path(sing_select.SING_BOX_CONFIG).write_text(json.dumps(old_config))
+
+        self.run_main("exceptions", "add", "example.com")
+        config = json.loads(Path(sing_select.SING_BOX_CONFIG).read_text())
+
+        self.assertEqual([item["tag"] for item in config["outbounds"]], ["proxy", "direct"])
+
+    def test_json_round_trip(self):
+        payload = json.dumps({"domains": ["example.com"], "bypass_ru": True})
+        self.run_main("exceptions", "set-json", stdin=payload)
+
+        state = json.loads(self.run_main("exceptions", "get-json"))
+
+        self.assertEqual(state, {"domains": ["example.com"], "bypass_ru": True})
+
+    def test_set_json_rejects_bad_payload(self):
+        with self.assertRaises(SystemExit):
+            self.run_main("exceptions", "set-json", stdin="{}")
 
 
 class FlagHelpersTest(unittest.TestCase):
@@ -254,7 +340,7 @@ class FilesTest(IsolatedConfigTestCase):
     def test_wireguard_goes_to_endpoints(self):
         sing_select.write_config("wg://PRIV@1.2.3.4:51820?publickey=PUB&address=10.0.0.2#wg")
         config = json.loads((self.config_dir / "sing.json").read_text())
-        self.assertNotIn("outbounds", config)
+        self.assertEqual(config["outbounds"], [{"type": "direct", "tag": "direct"}])
         self.assertEqual(config["endpoints"][0]["type"], "wireguard")
 
     def test_custom_links_are_private_and_skip_comments(self):

@@ -10,6 +10,12 @@
     sing select add socks5://айпи:порт:логин:пароль [имя]
     sing select rm <имя>           — удалить свой прокси
     sing select flag <имя> [страна] — флажок для своего прокси (код страны, например GB; без кода — по IP)
+    sing exceptions                — список исключений (домены мимо прокси) и режим «все .ru/.su/.рф»
+    sing exceptions add <домен…>   — добавить сайты в исключения (поддомены включены)
+    sing exceptions rm <домен…>    — убрать сайты из исключений
+    sing exceptions ru on|off      — все сайты .ru, .su и .рф идут мимо прокси
+    sing exceptions get-json       — состояние в JSON (для расширения браузера)
+    sing exceptions set-json       — заменить состояние JSON-ом из stdin (для расширения)
 
     sing select add <файл.conf> [имя] — импортировать конфиг WireGuard
 
@@ -36,7 +42,13 @@ SUBSCRIPTION_FILE = os.path.join(CONFIG_DIR, "sing.sub")
 CUSTOM_PROXIES_FILE = os.path.join(CONFIG_DIR, "custom.txt")
 CURRENT_SELECTION_FILE = os.path.join(CONFIG_DIR, "sing.current")
 SING_BOX_CONFIG = os.path.join(CONFIG_DIR, "sing.json")
+EXCEPTIONS_FILE = os.path.join(CONFIG_DIR, "exceptions.json")
 SOCKS_PORT = 1080
+DIRECT_TAG = "direct"
+MAX_EXCEPTIONS = 500
+# Суффиксы российских зон; .рф дублируется в punycode, потому что браузеры шлют домен в ASCII
+RU_DOMAIN_SUFFIXES = ("ru", "su", "рф", "xn--p1ai")
+DOMAIN_PATTERN = re.compile(r"^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+(xn--[a-z0-9-]{2,59}|[a-z]{2,63})$")
 PLAIN_PROXY_SCHEMES = ("socks", "socks5", "http", "https")
 SUPPORTED_SCHEMES = (
     "vless", "vmess", "trojan", "ss", "hysteria2", "hy2", "wireguard", "wg",
@@ -180,6 +192,121 @@ def link_with_flag(link, country_code):
     """Возвращает ссылку, у которой имя начинается с флага страны (старый флаг заменяется)."""
     flag = country_code_to_flag(country_code)
     return set_link_name(link, f"{flag} {strip_flag(link_name(link))}")
+
+
+def normalize_domain(text):
+    """Приводит домен или URL к чистому домену в ASCII; None, если это не домен."""
+    candidate = text.strip().lower()
+    if "://" in candidate:
+        candidate = urllib.parse.urlsplit(candidate).hostname or ""
+    candidate = re.sub(r"^\*?\.", "", candidate)
+    candidate = re.split(r"[/?#:]", candidate, maxsplit=1)[0].rstrip(".")
+    try:
+        candidate = candidate.encode("idna").decode("ascii")
+    except UnicodeError:
+        return None
+    return candidate if DOMAIN_PATTERN.match(candidate) else None
+
+
+def read_exceptions():
+    """Читает исключения: {"domains": [...], "bypass_ru": bool}; без файла — пустые."""
+    try:
+        with open(EXCEPTIONS_FILE) as exceptions_file:
+            stored = json.load(exceptions_file)
+    except (OSError, ValueError):
+        stored = {}
+    domains = [d for d in stored.get("domains", []) if isinstance(d, str) and DOMAIN_PATTERN.match(d)]
+    return {"domains": domains, "bypass_ru": bool(stored.get("bypass_ru", False))}
+
+
+def write_exceptions(exceptions):
+    """Сохраняет исключения (права 0600, как у остальных файлов sing)."""
+    file_descriptor = os.open(EXCEPTIONS_FILE, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(file_descriptor, "w") as exceptions_file:
+        json.dump(exceptions, exceptions_file, ensure_ascii=False, indent=2)
+
+
+def build_route(final_tag):
+    """Строит секцию route: домены из исключений идут в direct, остальное — в прокси."""
+    exceptions = read_exceptions()
+    suffixes = list(exceptions["domains"])
+    if exceptions["bypass_ru"]:
+        suffixes.extend(suffix for suffix in RU_DOMAIN_SUFFIXES if suffix not in suffixes)
+    route = {"final": final_tag}
+    if suffixes:
+        route["rules"] = [{"domain_suffix": suffixes, "outbound": DIRECT_TAG}]
+    return route
+
+
+def apply_exceptions_to_config():
+    """Обновляет route в готовом sing.json без повторного скачивания подписки."""
+    if not os.path.exists(SING_BOX_CONFIG):
+        return
+    with open(SING_BOX_CONFIG) as config_file:
+        config = json.load(config_file)
+    final_tag = config.get("route", {}).get("final")
+    if not final_tag:
+        return
+    config["route"] = build_route(final_tag)
+    # Конфиг, созданный старой версией sing, не содержит direct: правила на него ссылаются
+    outbounds = config.setdefault("outbounds", [])
+    if not any(outbound.get("tag") == DIRECT_TAG for outbound in outbounds):
+        outbounds.append({"type": "direct", "tag": DIRECT_TAG})
+    file_descriptor = os.open(SING_BOX_CONFIG, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(file_descriptor, "w") as config_file:
+        json.dump(config, config_file, ensure_ascii=False, indent=2)
+
+
+def parse_domains(raw_domains):
+    """Нормализует список доменов; при неверном домене завершает работу с понятной ошибкой."""
+    domains = []
+    for raw_domain in raw_domains:
+        domain = normalize_domain(raw_domain)
+        if not domain:
+            sys.exit(f"sing: «{raw_domain}» не похоже на домен (пример: example.com)")
+        if domain not in domains:
+            domains.append(domain)
+    return domains
+
+
+def print_exceptions(exceptions):
+    """Печатает исключения в человекочитаемом виде."""
+    print(f"все .ru/.su/.рф мимо прокси: {'да' if exceptions['bypass_ru'] else 'нет'}")
+    for domain in exceptions["domains"]:
+        print(f"  {domain}")
+
+
+def run_exceptions_command(arguments):
+    """Подкоманда exceptions: показать, добавить, убрать, переключить .ru, обмен JSON."""
+    exceptions = read_exceptions()
+    action = arguments[0] if arguments else ""
+    if action == "":
+        print_exceptions(exceptions)
+        return
+    if action == "get-json":
+        print(json.dumps(exceptions, ensure_ascii=False))
+        return
+    if action == "add" and len(arguments) > 1:
+        merged = exceptions["domains"] + [d for d in parse_domains(arguments[1:]) if d not in exceptions["domains"]]
+        exceptions = {**exceptions, "domains": merged}
+    elif action in ("rm", "remove") and len(arguments) > 1:
+        removed = set(parse_domains(arguments[1:]))
+        exceptions = {**exceptions, "domains": [d for d in exceptions["domains"] if d not in removed]}
+    elif action == "ru" and len(arguments) == 2 and arguments[1] in ("on", "off"):
+        exceptions = {**exceptions, "bypass_ru": arguments[1] == "on"}
+    elif action == "set-json":
+        try:
+            incoming = json.load(sys.stdin)
+            exceptions = {"domains": parse_domains(incoming["domains"]), "bypass_ru": bool(incoming["bypass_ru"])}
+        except (ValueError, KeyError, TypeError):
+            sys.exit('sing: set-json ждёт {"domains": [...], "bypass_ru": true|false}')
+    else:
+        sys.exit("sing: exceptions [add <домен…> | rm <домен…> | ru on|off | get-json | set-json]")
+    if len(exceptions["domains"]) > MAX_EXCEPTIONS:
+        sys.exit(f"sing: не больше {MAX_EXCEPTIONS} исключений")
+    write_exceptions(exceptions)
+    apply_exceptions_to_config()
+    print_exceptions(exceptions) if action != "set-json" else print(json.dumps(exceptions, ensure_ascii=False))
 
 
 def build_tls(params, server_host, security):
@@ -453,11 +580,14 @@ def write_config(link):
             {"type": "mixed", "tag": "mixed-in", "listen": "127.0.0.1", "listen_port": SOCKS_PORT}
         ],
     }
+    # direct идёт вторым: sing читает адрес сервера из outbounds.0
+    direct_outbound = {"type": "direct", "tag": DIRECT_TAG}
     if outbound["type"] == "wireguard":
         config["endpoints"] = [outbound]
+        config["outbounds"] = [direct_outbound]
     else:
-        config["outbounds"] = [outbound]
-    config["route"] = {"final": outbound["tag"]}
+        config["outbounds"] = [outbound, direct_outbound]
+    config["route"] = build_route(outbound["tag"])
     file_descriptor = os.open(SING_BOX_CONFIG, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     with os.fdopen(file_descriptor, "w") as config_file:
         json.dump(config, config_file, ensure_ascii=False, indent=2)
@@ -649,6 +779,9 @@ def main():
         if len(arguments) < 2:
             sys.exit("sing: укажи ссылку или файл: add <ссылка|файл.conf> [имя]")
         add_custom_proxies(arguments[1:])
+        return
+    if arguments and arguments[0] == "exceptions":
+        run_exceptions_command(arguments[1:])
         return
     if arguments and arguments[0] == "flag":
         set_custom_proxy_flag(arguments[1:])

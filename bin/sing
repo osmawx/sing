@@ -16,6 +16,7 @@
 #   sing select add socks5://1.2.3.4:1080:логин:пароль [имя]
 #   sing select rm <имя>         — удалить свой прокси
 #   sing select flag <имя> [GB]  — флажок для своего прокси (без кода — по IP сервера)
+#   sing exceptions [add|rm <домен…>|ru on|off] — сайты мимо прокси (все .ru/.su/.рф переключателем)
 set -euo pipefail
 
 SING_BOX_CONFIG="$HOME/.config/sing-box/sing.json"
@@ -117,7 +118,7 @@ show_status() {
 
 case "${1:-}" in
   "")
-    sed -n '6,18p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '6,19p' "$0" | sed 's/^# \{0,1\}//'
     exit 1
     ;;
   stop)
@@ -140,6 +141,21 @@ case "${1:-}" in
           sleep 0.3
           ensure_sing_box_running
           echo "sing: sing-box перезапущен"
+        fi
+        ;;
+    esac
+    ;;
+  exceptions)
+    shift
+    python3 -I "$SELECT_SCRIPT" exceptions "$@"
+    # Правила маршрутизации читаются при старте: перезапускаем, если sing-box работает
+    case "${1:-}" in
+      "" | get-json) ;;
+      *)
+        if is_socks_listening; then
+          stop_sing_box >/dev/null
+          sleep 0.3
+          ensure_sing_box_running
         fi
         ;;
     esac
