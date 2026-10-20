@@ -9,6 +9,7 @@
     sing select add <протокол> <айпи:порт> [логин пароль] [имя] — то же без ссылки
     sing select add socks5://айпи:порт:логин:пароль [имя]
     sing select rm <имя>           — удалить свой прокси
+    sing select flag <имя> [страна] — флажок для своего прокси (код страны, например GB; без кода — по IP)
 
     sing select add <файл.conf> [имя] — импортировать конфиг WireGuard
 
@@ -24,6 +25,8 @@ URL подписки хранится в ~/.config/sing-box/sing.sub,
 import base64
 import json
 import os
+import re
+import socket
 import sys
 import urllib.parse
 import urllib.request
@@ -39,6 +42,10 @@ SUPPORTED_SCHEMES = (
     "vless", "vmess", "trojan", "ss", "hysteria2", "hy2", "wireguard", "wg",
     "socks", "socks5", "http", "https",
 )
+GEOLOCATION_URL = "https://ipwho.is/{ip}?fields=success,country_code"
+GEOLOCATION_TIMEOUT_SECONDS = 5
+FLAG_PREFIX_PATTERN = re.compile(r"^[\U0001F1E6-\U0001F1FF]{2}\s*")
+COUNTRY_CODE_PATTERN = re.compile(r"^[A-Za-z]{2}$")
 WIREGUARD_SCHEMES = ("wireguard", "wg")
 # Поля AmneziaWG: sing-box их не поддерживает, такой конфиг не заработает
 AMNEZIA_FIELDS = ("jc", "jmin", "jmax", "s1", "s2", "h1", "h2", "h3", "h4")
@@ -125,6 +132,54 @@ def set_link_name(link, name):
         payload["ps"] = name
         return "vmess://" + base64.b64encode(json.dumps(payload, ensure_ascii=False).encode()).decode()
     return link.split("#", 1)[0] + "#" + urllib.parse.quote(name)
+
+
+def country_code_to_flag(country_code):
+    """Превращает код страны (GB) в эмодзи-флаг; ValueError, если код неверный."""
+    if not COUNTRY_CODE_PATTERN.match(country_code):
+        raise ValueError(f"код страны из двух букв, например GB (получено «{country_code}»)")
+    return "".join(chr(0x1F1E6 + ord(letter) - ord("A")) for letter in country_code.upper())
+
+
+def strip_flag(name):
+    """Убирает флаг в начале имени, если он есть."""
+    return FLAG_PREFIX_PATTERN.sub("", name, count=1)
+
+
+def has_flag(name):
+    """Есть ли в начале имени эмодзи-флаг."""
+    return bool(FLAG_PREFIX_PATTERN.match(name))
+
+
+def link_server_host(link):
+    """Адрес сервера из ссылки (для определения страны); пустая строка, если не удалось."""
+    try:
+        outbound = build_outbound(link)
+    except (ValueError, KeyError, IndexError):
+        return ""
+    if outbound.get("type") == "wireguard":
+        return outbound["peers"][0].get("address", "")
+    return outbound.get("server", "")
+
+
+def lookup_country_code(server_host):
+    """Определяет код страны по IP сервера через ipwho.is; пустая строка при сбое."""
+    try:
+        server_ip = socket.gethostbyname(server_host)
+        request = urllib.request.Request(  # noqa: S310 — схема https зашита в константе
+            GEOLOCATION_URL.format(ip=server_ip), headers={"User-Agent": "sing"},
+        )
+        with urllib.request.urlopen(request, timeout=GEOLOCATION_TIMEOUT_SECONDS) as response:  # noqa: S310
+            data = json.load(response)
+    except (OSError, ValueError):
+        return ""
+    return data.get("country_code", "") if data.get("success") else ""
+
+
+def link_with_flag(link, country_code):
+    """Возвращает ссылку, у которой имя начинается с флага страны (старый флаг заменяется)."""
+    flag = country_code_to_flag(country_code)
+    return set_link_name(link, f"{flag} {strip_flag(link_name(link))}")
 
 
 def build_tls(params, server_host, security):
@@ -519,6 +574,11 @@ def add_custom_proxies(arguments):
             build_outbound(link)
         except (ValueError, KeyError, IndexError) as error:
             sys.exit(f"sing: не разобрал ссылку ({error})")
+        if not has_flag(link_name(link)):
+            # Флаг по IP сервера; при сбое сети имя остаётся как есть
+            detected_code = lookup_country_code(link_server_host(link))
+            if detected_code:
+                link = link_with_flag(link, detected_code)
         if link_name(link) in existing_names:
             sys.exit(f"sing: «{link_name(link)}» уже есть — задай другое имя")
         custom_links.append(link)
@@ -526,6 +586,37 @@ def add_custom_proxies(arguments):
         print(f"добавлен: {link_name(link)}")
     write_custom_links(custom_links)
     print("выбрать: sing select <имя>")
+
+
+def set_custom_proxy_flag(arguments):
+    """Ставит флаг своему прокси: «flag <имя> [код страны]»; без кода страна берётся по IP."""
+    if not arguments:
+        sys.exit("sing: укажи имя: flag <имя> [страна, например GB]")
+    custom_links = read_custom_links()
+    country_code = ""
+    query_words = arguments
+    if len(arguments) > 1 and COUNTRY_CODE_PATTERN.match(arguments[-1]):
+        country_code, query_words = arguments[-1], arguments[:-1]
+    target_link = find_link(custom_links, " ".join(query_words))
+    if not target_link:
+        sys.exit(f"sing: среди своих нет «{' '.join(query_words)}»")
+    if not country_code:
+        country_code = lookup_country_code(link_server_host(target_link))
+        if not country_code:
+            sys.exit("sing: не удалось определить страну по IP, укажи код: flag <имя> GB")
+    try:
+        updated_link = link_with_flag(target_link, country_code)
+    except ValueError as error:
+        sys.exit(f"sing: {error}")
+    old_name, new_name = link_name(target_link), link_name(updated_link)
+    if any(link_name(link) == new_name for link in custom_links if link != target_link):
+        sys.exit(f"sing: «{new_name}» уже есть")
+    write_custom_links([updated_link if link == target_link else link for link in custom_links])
+    # Если это текущий сервер, обновляем и запомненное имя (звёздочка в списке)
+    if read_current_name() == old_name:
+        with open(CURRENT_SELECTION_FILE, "w") as current_file:
+            current_file.write(new_name)
+    print(f"{old_name} → {new_name}")
 
 
 def remove_custom_proxy(query):
@@ -558,6 +649,9 @@ def main():
         if len(arguments) < 2:
             sys.exit("sing: укажи ссылку или файл: add <ссылка|файл.conf> [имя]")
         add_custom_proxies(arguments[1:])
+        return
+    if arguments and arguments[0] == "flag":
+        set_custom_proxy_flag(arguments[1:])
         return
     if arguments and arguments[0] in ("rm", "remove"):
         if len(arguments) < 2:

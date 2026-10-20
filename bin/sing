@@ -15,6 +15,7 @@
 #   sing select add socks5 1.2.3.4:1080 логин пароль [имя] — то же в формате «протокол айпи:порт»
 #   sing select add socks5://1.2.3.4:1080:логин:пароль [имя]
 #   sing select rm <имя>         — удалить свой прокси
+#   sing select flag <имя> [GB]  — флажок для своего прокси (без кода — по IP сервера)
 set -euo pipefail
 
 SING_BOX_CONFIG="$HOME/.config/sing-box/sing.json"
@@ -116,7 +117,7 @@ show_status() {
 
 case "${1:-}" in
   "")
-    sed -n '6,17p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '6,18p' "$0" | sed 's/^# \{0,1\}//'
     exit 1
     ;;
   stop)
@@ -128,7 +129,7 @@ case "${1:-}" in
   select)
     shift
     case "${1:-}" in
-      "" | add | rm | remove)
+      "" | add | rm | remove | flag)
         python3 -I "$SELECT_SCRIPT" "$@"
         ;;
       *)
