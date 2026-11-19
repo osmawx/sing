@@ -97,3 +97,11 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for checks and style. Report vulnerabilit
 ## License
 
 [MIT](LICENSE)
+
+## Version and release updates
+
+`sing --version` prints the installed CLI version without starting the proxy. Source installations use `VERSION`; standalone release packages stamp their own release version. The browser extension can check and update the CLI through GitHub Releases without a local source checkout. It reports and updates the separate sing-box engine through Homebrew.
+
+After all CI checks pass for a push to `main`, CI publishes `sing-macos.tar.gz` and its SHA-256 checksum. Automatic versions use `1.0.<CI run number>`. Each package includes only CLI code, parser, proxychains template and version/checksum metadata; user configuration is never packaged. PR builds do not publish releases.
+
+For the initial rollout, publish this CLI release before enabling the extension's release installer, which downloads the latest stable CLI package.

@@ -54,3 +54,7 @@ Keep changes focused. Add tests for failure paths and behavior that protects pro
 - Keep one change per pull request. Never commit `sing.sub`, `custom.txt`, `sing.json`, real links, or keys.
 - Explain why the change is needed in the pull request description. List key changes and any checks you could not run.
 - Wait for CI checks and address review comments before merging. The maintainer decides when to merge.
+
+## Automatic releases
+
+Successful CI on `main` publishes a standalone runtime archive and its checksum. CI stamps `1.0.<CI run number>` into the packaged `VERSION` without changing source files. `scripts/package_release.py` packages only explicit runtime files. Publish the initial CLI release before merging the extension's release installer.
