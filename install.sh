@@ -32,6 +32,7 @@ check_dependencies() {
 
 link_file "$REPO_DIR/bin/sing" "$HOME/.local/bin/sing"
 link_file "$REPO_DIR/share/select.py" "$HOME/.local/share/sing/select.py"
+link_file "$REPO_DIR/VERSION" "$HOME/.local/share/sing/VERSION"
 link_file "$REPO_DIR/proxychains/sing.conf" "$HOME/.proxychains/sing.conf"
 
 # Переносит файлы старой версии (blanc.*) в sing.*, если новых ещё нет.

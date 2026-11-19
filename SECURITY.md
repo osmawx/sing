@@ -39,3 +39,5 @@ Out of scope:
 - vulnerabilities in sing-box, proxychains-ng or the proxy protocols themselves (report them upstream);
 - apps that ignore both proxychains and proxy settings;
 - a malicious subscription provider: you already trust it with your traffic.
+
+Standalone releases include only an explicit runtime file list and SHA-256 checksums. The extension installs these packages without a source checkout and preserves existing user configuration. Release checksums detect download corruption; trust in maintainers and the official GitHub account remains required.
