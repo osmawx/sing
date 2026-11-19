@@ -32,7 +32,8 @@ jobs:
       - uses: astral-sh/ruff-action@278981a28ce3188b1e39527901f38254bf3aac89 # v4.1.0
 
   tests:
-    runs-on: ubuntu-latest
+    # Python 3.9 is unavailable on Ubuntu 26.04 (ubuntu-latest).
+    runs-on: ubuntu-24.04
     strategy:
       matrix:
         # Oldest Python the code supports and the current one
